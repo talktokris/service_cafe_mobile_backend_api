@@ -12,7 +12,7 @@ class EnsureMember
     {
         $user = $request->user();
 
-        if (!$user || $user->user_type !== 'member') {
+        if (!$user || $user->user_type !== 'member' || (int) $user->deleteStatus !== 0) {
             return response()->json([
                 'success' => false,
                 'message' => 'Access denied. Members only.',

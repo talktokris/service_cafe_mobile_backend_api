@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\CashWalletController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EarningsController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OrderOtpController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\TransactionController;
@@ -31,6 +32,7 @@ Route::middleware(['auth:sanctum', 'member'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{id}', [OrderController::class, 'show']);
+    Route::get('/order-otps', [OrderOtpController::class, 'index']);
     Route::get('/transactions', [TransactionController::class, 'index']);
     Route::get('/referral', [ReferralController::class, 'index']);
     Route::get('/support', [SupportController::class, 'index']);
@@ -39,6 +41,7 @@ Route::middleware(['auth:sanctum', 'member'])->group(function () {
     Route::put('/profile', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('/profile/referral', [ProfileController::class, 'updateReferral']);
+    Route::post('/profile/delete-account', [ProfileController::class, 'deleteAccount']);
 
     Route::middleware('paid.member')->group(function () {
         Route::get('/earnings', [EarningsController::class, 'index']);

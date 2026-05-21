@@ -37,6 +37,7 @@ class RegisterController extends Controller
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8|confirmed',
+            'terms_accepted' => 'required|accepted',
         ]);
 
         $referrer = User::where('referral_code', $request->referral_code)->where('deleteStatus', 0)->first();
@@ -56,6 +57,7 @@ class RegisterController extends Controller
             'referred_by' => $referrer->id,
             'activeStatus' => 1,
             'deleteStatus' => 0,
+            'terms_accepted_at' => now(),
         ]);
 
         try {

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -42,6 +43,7 @@ class User extends Authenticatable
         'promotionRunStatus',
         'referral_count',
         'deleteStatus',
+        'terms_accepted_at',
     ];
 
     /**
@@ -63,6 +65,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
             'password' => 'hashed',
             'activeStatus' => 'integer',
             'deleteStatus' => 'integer',
@@ -144,17 +147,19 @@ class User extends Authenticatable
     /**
      * Check if user has a specific role.
      */
-    public function hasRole($roleName)
+    public function hasRole(string $roleName): bool
     {
         return $this->roles()->where('name', $roleName)->exists();
     }
 
     /**
      * Check if user has any of the given roles.
+     *
+     * @param  array<int, string>|string  $roleNames
      */
-    public function hasAnyRole($roleNames)
+    public function hasAnyRole(array|string $roleNames): bool
     {
-        return $this->roles()->whereIn('name', $roleNames)->exists();
+        return $this->roles()->whereIn('name', (array) $roleNames)->exists();
     }
 
     /**
@@ -338,7 +343,7 @@ class User extends Authenticatable
     /**
      * Scope for active users.
      */
-    public function scopeActive($query)
+    public function scopeActive(Builder $query): Builder
     {
         return $query->where('activeStatus', 1);
     }
@@ -346,7 +351,7 @@ class User extends Authenticatable
     /**
      * Scope for non-deleted users.
      */
-    public function scopeNotDeleted($query)
+    public function scopeNotDeleted(Builder $query): Builder
     {
         return $query->where('deleteStatus', 0);
     }

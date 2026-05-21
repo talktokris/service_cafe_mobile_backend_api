@@ -7,6 +7,7 @@ use App\Http\Resources\UserResource;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
@@ -78,5 +79,32 @@ class ProfileController extends Controller
         ]);
 
         return $this->success(new UserResource($user->fresh()), 'Referral code updated successfully.');
+    }
+
+    public function deleteAccount(Request $request)
+    {
+        $request->validate([
+            'confirmation' => ['required', 'string', 'in:Delete'],
+        ]);
+
+        $user = $request->user();
+
+        $user->update([
+            'name' => '',
+            'first_name' => null,
+            'last_name' => null,
+            'phone' => null,
+            'address' => null,
+            'gender' => null,
+            'country' => null,
+            'email' => 'deleted_'.$user->id.'_'.time().'@deleted.servecafe',
+            'password' => Hash::make(Str::random(64)),
+            'deleteStatus' => 1,
+            'activeStatus' => 0,
+        ]);
+
+        $user->tokens()->delete();
+
+        return $this->success(null, 'Your account has been deleted successfully.');
     }
 }
