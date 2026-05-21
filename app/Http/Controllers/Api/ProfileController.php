@@ -69,13 +69,13 @@ class ProfileController extends Controller
                 'string',
                 'min:3',
                 'max:60',
-                'regex:/^[a-z0-9]+$/',
+                'regex:/^[a-zA-Z0-9_-]+$/',
                 Rule::unique('users')->ignore($user->id),
             ],
         ]);
 
         $user->update([
-            'referral_code' => strtolower(trim($request->referral_code)),
+            'referral_code' => trim($request->referral_code),
         ]);
 
         return $this->success(new UserResource($user->fresh()), 'Referral code updated successfully.');

@@ -15,16 +15,35 @@ class RegisterController extends Controller
 {
     use ApiResponse;
 
+    private function findReferrerByCode(string $referralCode): ?User
+    {
+        $code = trim($referralCode);
+
+        if ($code === '' || ! preg_match('/^[a-zA-Z0-9_-]{3,60}$/', $code)) {
+            return null;
+        }
+
+        return User::where('deleteStatus', 0)
+            ->whereRaw('LOWER(referral_code) = LOWER(?)', [$code])
+            ->first();
+    }
+
     public function validateReferral(string $referralCode)
     {
-        $referrer = User::where('referral_code', $referralCode)->where('deleteStatus', 0)->first();
+        $code = trim(urldecode($referralCode));
 
-        if (!$referrer) {
+        if ($code === '' || ! preg_match('/^[a-zA-Z0-9_-]{3,60}$/', $code)) {
+            return $this->error('Invalid referral code format.', 422);
+        }
+
+        $referrer = $this->findReferrerByCode($code);
+
+        if (! $referrer) {
             return $this->error('Invalid referral code. Please check and try again.', 404);
         }
 
         return $this->success([
-            'referral_code' => $referralCode,
+            'referral_code' => $referrer->referral_code,
             'referrer_name' => trim(($referrer->first_name ?? '').' '.($referrer->last_name ?? '')) ?: $referrer->name,
         ]);
     }
@@ -32,7 +51,7 @@ class RegisterController extends Controller
     public function register(Request $request)
     {
         $request->validate([
-            'referral_code' => 'required|string',
+            'referral_code' => ['required', 'string', 'min:3', 'max:60', 'regex:/^[a-zA-Z0-9_-]+$/'],
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email',
@@ -40,8 +59,8 @@ class RegisterController extends Controller
             'terms_accepted' => 'required|accepted',
         ]);
 
-        $referrer = User::where('referral_code', $request->referral_code)->where('deleteStatus', 0)->first();
-        if (!$referrer) {
+        $referrer = $this->findReferrerByCode($request->referral_code);
+        if (! $referrer) {
             return $this->error('Invalid referral code.', 422);
         }
 
