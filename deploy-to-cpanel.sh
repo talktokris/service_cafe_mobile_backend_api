@@ -10,6 +10,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# macOS: stop tar/rsync from uploading AppleDouble "._*" junk and .DS_Store
+export COPYFILE_DISABLE=1
+export COPY_EXTENDED_ATTRIBUTES_DISABLE=1
+
 if [[ -f deploy-config.env ]]; then
   # shellcheck source=/dev/null
   source deploy-config.env
@@ -21,6 +25,22 @@ fi
 if [[ -z "$SSH_USER" || -z "$SSH_HOST" || -z "$REMOTE_PATH" ]]; then
   echo "Set SSH_USER, SSH_HOST, and REMOTE_PATH in deploy-config.env"
   exit 1
+fi
+
+# Never deploy inside service_cafe/ — API must be a sibling folder under repositories/
+if [[ "$REMOTE_PATH" == *service_cafe* ]]; then
+  echo "ERROR: REMOTE_PATH must not be inside service_cafe/."
+  echo "  Current:  ${REMOTE_PATH}"
+  echo "  Required: repositories/backend-api"
+  echo ""
+  echo "Edit deploy-config.env and set:"
+  echo "  REMOTE_PATH=repositories/backend-api"
+  exit 1
+fi
+
+# Must be exactly repositories/backend-api (or absolute home path ending in /repositories/backend-api)
+if [[ "$REMOTE_PATH" != "repositories/backend-api" && "$REMOTE_PATH" != */repositories/backend-api ]]; then
+  echo "WARNING: REMOTE_PATH is '${REMOTE_PATH}' — expected repositories/backend-api"
 fi
 
 REMOTE_PUBLIC_LINK="${REMOTE_PUBLIC_LINK:-public_html/backend-mobile-api}"
@@ -81,20 +101,89 @@ rsync_upload() {
     "$@"
 }
 
+# cPanel SSH often has no `composer` in non-interactive PATH — install locally and upload vendor.
+LOCAL_VENDOR="${LOCAL_VENDOR:-1}"
+
+ensure_local_vendor() {
+  if [[ "$LOCAL_VENDOR" != "1" && "$LOCAL_VENDOR" != "true" ]]; then
+    return 0
+  fi
+  if [[ -f vendor/autoload.php ]]; then
+    echo "Local vendor/ present — will upload with app."
+    return 0
+  fi
+  echo "Running composer install locally (for upload to server)..."
+  if ! command -v composer >/dev/null 2>&1; then
+    echo "ERROR: composer not found locally. Install Composer, or set LOCAL_VENDOR=0 and COMPOSER_BIN on server in deploy-config.env"
+    return 1
+  fi
+  # Match cPanel PHP 8.2 — do not install Symfony 8.x / PHP 8.4-only deps from a Mac on PHP 8.4
+  composer config platform.php 8.2.29
+  composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+}
+
+# Shared excludes for macOS metadata junk (._* AppleDouble, .DS_Store)
+DEPLOY_RSYNC_EXCLUDES=(
+  --exclude .env
+  --exclude deploy-config.env
+  --exclude .git
+  --exclude node_modules
+  --exclude storage/logs
+  --exclude .phpunit.cache
+  --exclude '.DS_Store'
+  --exclude '._*'
+)
+
+upload_application_via_tar() {
+  echo "Uploading Laravel API via tar (fallback when rsync fails)..."
+  local excludes=(
+    --exclude=.git
+    --exclude=.env
+    --exclude=node_modules
+    --exclude=storage/logs
+    --exclude=.phpunit.cache
+    --exclude=deploy-config.env
+    --exclude=.DS_Store
+    --exclude='._*'
+  )
+  if [[ "$LOCAL_VENDOR" != "1" && "$LOCAL_VENDOR" != "true" ]]; then
+    excludes+=(--exclude=vendor)
+  fi
+  # COPYFILE_DISABLE prevents macOS tar from packing ._ files; 2>/dev/null hides xattr noise
+  tar czf - "${excludes[@]}" . 2>/dev/null | "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" \
+    "mkdir -p ${REMOTE_PATH} && tar xzf - -C ${REMOTE_PATH} 2>/dev/null"
+  echo "Done application (tar)."
+}
+
+cleanup_remote_mac_junk() {
+  echo "Removing macOS metadata files (._* and .DS_Store) on server..."
+  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -s -- "${REMOTE_PATH}" <<'EOF'
+set -e
+cd "$1"
+count=0
+while IFS= read -r -d '' f; do
+  rm -f "$f"
+  count=$((count + 1))
+done < <(find . -name '._*' -print0 2>/dev/null)
+while IFS= read -r -d '' f; do
+  rm -f "$f"
+  count=$((count + 1))
+done < <(find . -name '.DS_Store' -print0 2>/dev/null)
+echo "Removed ${count} junk file(s)."
+EOF
+}
+
 resolve_remote_path() {
   local configured="${REMOTE_PATH}"
   local detected=""
 
+  # Only use configured path — do not fall back to old service_cafe/backend-api location
   detected=$("${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -s -- "$configured" <<'REMOTE_PATH_DETECT' || true
 configured="$1"
-for p in "$configured" "repositories/service_cafe/backend-api"; do
-  [[ -z "$p" ]] && continue
-  if [[ -f "$p/artisan" && -d "$p/public" ]]; then
-    echo "$p"
-    exit 0
-  fi
-done
-# Allow deploy to create path on first run
+if [[ -f "$configured/artisan" && -d "$configured/public" ]]; then
+  echo "$configured"
+  exit 0
+fi
 if [[ -d "$(dirname "$configured")" ]]; then
   echo "$configured"
   exit 0
@@ -110,35 +199,75 @@ REMOTE_PATH_DETECT
     return 0
   fi
 
-  echo "ERROR: Cannot resolve REMOTE_PATH. Set REMOTE_PATH=repositories/service_cafe/backend-api in deploy-config.env"
+  echo "ERROR: Cannot resolve REMOTE_PATH. Set REMOTE_PATH=repositories/backend-api in deploy-config.env"
   return 1
 }
 
 upload_application() {
-  echo "Uploading Laravel API (excluding vendor, .env, .git)..."
+  echo "Uploading Laravel API (.env and .git excluded)..."
   "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" "mkdir -p ${REMOTE_PATH}"
 
-  rsync_upload \
-    --exclude vendor \
-    --exclude .env \
-    --exclude .git \
-    --exclude node_modules \
-    --exclude storage/logs \
-    --exclude .phpunit.cache \
-    --delete-excluded \
-    ./ "${REMOTE}"
+  local rsync_excludes=("${DEPLOY_RSYNC_EXCLUDES[@]}")
+  if [[ "$LOCAL_VENDOR" != "1" && "$LOCAL_VENDOR" != "true" ]]; then
+    rsync_excludes+=(--exclude vendor)
+  fi
+
+  if rsync_upload "${rsync_excludes[@]}" --delete-excluded ./ "${REMOTE}"; then
+    echo "Done application (rsync)."
+    return 0
+  fi
+  echo ""
+  echo "Rsync failed — retrying with tar upload..."
+  upload_application_via_tar
 }
 
 run_remote_composer() {
-  echo "Running composer install on server..."
-  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -s <<EOF
+  if [[ "$LOCAL_VENDOR" == "1" || "$LOCAL_VENDOR" == "true" ]]; then
+    if "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -s -- "${REMOTE_PATH}" <<'EOF'
 set -e
-cd "${REMOTE_PATH}"
-if ! command -v composer >/dev/null 2>&1; then
-  echo "ERROR: composer not found on server PATH"
+cd "$1"
+if [[ -f vendor/autoload.php ]]; then
+  echo "vendor/ already on server (uploaded from local) — skip server composer."
+  exit 0
+fi
+exit 2
+EOF
+    then
+      return 0
+    fi
+  fi
+
+  echo "Running composer install on server..."
+  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -l -s -- "${REMOTE_PATH}" "${COMPOSER_BIN:-}" <<'EOF'
+set -e
+cd "$1"
+override="$2"
+composer_cmd=""
+if [[ -n "$override" && -x "$override" ]]; then
+  composer_cmd="$override"
+else
+  for c in composer /usr/local/bin/composer /opt/cpanel/composer/bin/composer /usr/local/cpanel/3rdparty/bin/composer; do
+    if command -v "$c" >/dev/null 2>&1; then
+      composer_cmd="$c"
+      break
+    fi
+    if [[ -x "$c" ]]; then
+      composer_cmd="$c"
+      break
+    fi
+  done
+fi
+if [[ -z "$composer_cmd" && -f composer.phar ]]; then
+  composer_cmd="php composer.phar"
+fi
+if [[ -z "$composer_cmd" ]]; then
+  echo "ERROR: composer not found on server."
+  echo "Fix: run deploy with LOCAL_VENDOR=1 (default), or SSH in and install Composer, or set COMPOSER_BIN in deploy-config.env"
   exit 1
 fi
-composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+export HOME="${HOME:-$HOME}"
+export COMPOSER_HOME="${COMPOSER_HOME:-$HOME/.composer}"
+$composer_cmd install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 EOF
 }
 
@@ -155,12 +284,23 @@ EOF
 
 link_public_folder() {
   echo "Linking ~/${REMOTE_PUBLIC_LINK} → ~/${REMOTE_PATH}/public"
-  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -s <<EOF
+  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -l -s -- "${REMOTE_PATH}" "${REMOTE_PUBLIC_LINK}" <<'EOF'
 set -e
-mkdir -p "$(dirname "${REMOTE_PUBLIC_LINK}")"
-rm -rf "${REMOTE_PUBLIC_LINK}"
-ln -sfn "\$HOME/${REMOTE_PATH}/public" "\$HOME/${REMOTE_PUBLIC_LINK}"
-ls -la "\$HOME/${REMOTE_PUBLIC_LINK}"
+remote_path="$1"
+public_link="$2"
+home="${HOME:-$(cd ~ && pwd)}"
+api_public="${home}/${remote_path}/public"
+link_path="${home}/${public_link}"
+
+if [[ ! -f "${api_public}/index.php" ]]; then
+  echo "ERROR: ${api_public}/index.php missing — upload did not complete."
+  exit 1
+fi
+mkdir -p "${home}/public_html"
+mkdir -p "$(dirname "${link_path}")"
+rm -rf "${link_path}"
+ln -sfn "${api_public}" "${link_path}"
+ls -la "${link_path}"
 EOF
 }
 
@@ -211,12 +351,19 @@ EOF
 }
 
 echo "=== Deploy mobile API to $SSH_USER@$SSH_HOST ==="
+echo "Target REMOTE_PATH: ${REMOTE_PATH}"
 
 resolve_remote_path || exit 1
+ensure_local_vendor || exit 1
 open_ssh_master
 
 UPLOAD_OK=1
 upload_application || UPLOAD_OK=0
+if [[ "$UPLOAD_OK" != "1" ]]; then
+  echo "ERROR: File upload failed. Fix SSH/network and re-run ./deploy.sh"
+  exit 1
+fi
+cleanup_remote_mac_junk || true
 run_remote_composer || UPLOAD_OK=0
 run_remote_permissions || UPLOAD_OK=0
 link_public_folder || UPLOAD_OK=0
@@ -235,10 +382,42 @@ if [[ "$CLEAR_CACHE" == "1" || "$CLEAR_CACHE" == "true" ]]; then
   clear_remote_cache
 fi
 
+verify_remote_deploy() {
+  echo ""
+  echo "=== Server paths (File Manager) ==="
+  "${SSH_BASE[@]}" "${SSH_USER}@${SSH_HOST}" bash -l -s -- "${REMOTE_PATH}" "${REMOTE_PUBLIC_LINK}" <<'EOF'
+set -e
+remote_path="$1"
+public_link="$2"
+home="${HOME:-$(cd ~ && pwd)}"
+api_root="${home}/${remote_path}"
+echo "Mobile API files: ${api_root}"
+if [[ -f "${api_root}/artisan" ]]; then
+  echo "  OK: artisan found"
+  ls -la "${api_root}" | head -20
+else
+  echo "  WARNING: artisan missing at ${api_root}"
+  echo "  Searching for backend-api under ~/repositories..."
+  find "${home}/repositories" -maxdepth 4 -type d -name backend-api 2>/dev/null || true
+fi
+echo ""
+echo "Public URL symlink:"
+ls -la "${home}/${public_link}" 2>/dev/null || echo "  (symlink not found)"
+echo ""
+echo "In cPanel File Manager open:"
+echo "  repositories → $(basename "${api_root}")"
+EOF
+}
+
+verify_remote_deploy
+
 echo ""
 echo "=== Deploy finished ==="
 echo "API base URL (after .env is configured):"
 echo "  https://${SSH_HOST}/backend-mobile-api/api"
+echo ""
+echo "cPanel File Manager: repositories → backend-api"
+echo "  (sibling of service_cafe/, not inside it)"
 echo ""
 echo "Next steps on server:"
 echo "  1. ssh ${SSH_USER}@${SSH_HOST}"

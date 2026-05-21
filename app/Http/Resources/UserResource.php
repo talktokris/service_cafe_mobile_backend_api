@@ -24,7 +24,16 @@ class UserResource extends JsonResource
             'referral_code' => $this->referral_code,
             'referral_count' => $this->referral_count,
             'active_status' => $this->activeStatus,
-            'wallet_balance' => $this->getCurrentWalletBalance(),
+            'wallet_balance' => $this->safeWalletBalance(),
         ];
+    }
+
+    protected function safeWalletBalance(): float
+    {
+        try {
+            return (float) $this->getCurrentWalletBalance();
+        } catch (\Throwable) {
+            return 0.0;
+        }
     }
 }
