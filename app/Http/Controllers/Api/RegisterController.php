@@ -65,7 +65,7 @@ class RegisterController extends Controller
         }
 
         $user = User::create([
-            'name' => trim($request->first_name.' '.$request->last_name),
+            'name' => User::buildDisplayName($request->first_name, $request->last_name),
             'first_name' => trim($request->first_name),
             'last_name' => trim($request->last_name),
             'email' => strtolower(trim($request->email)),

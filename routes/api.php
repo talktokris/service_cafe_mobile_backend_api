@@ -41,6 +41,8 @@ Route::middleware(['auth:sanctum', 'member'])->group(function () {
     Route::put('/profile', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('/profile/referral', [ProfileController::class, 'updateReferral']);
+    Route::get('/profile/bank-ewallet', [ProfileController::class, 'bankEwalletSetup']);
+    Route::put('/profile/bank-ewallet', [ProfileController::class, 'upsertBankEwalletSetup']);
     Route::post('/profile/delete-account', [ProfileController::class, 'deleteAccount']);
 
     Route::middleware('paid.member')->group(function () {

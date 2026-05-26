@@ -129,6 +129,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the user's bank and e-wallet setup.
+     */
+    public function bankEwalletSetup()
+    {
+        return $this->hasOne(BankEwalletSetup::class);
+    }
+
+    /**
      * Get the user's orders.
      */
     public function orders()
@@ -474,5 +482,22 @@ class User extends Authenticatable
     public function resetReferralCount(): void
     {
         $this->update(['referral_count' => 0]);
+    }
+
+    /**
+     * Build display name from first + last (falls back to existing name if both empty).
+     */
+    public static function buildDisplayName(
+        ?string $firstName,
+        ?string $lastName,
+        ?string $fallback = null
+    ): string {
+        $full = trim(trim((string) $firstName) . ' ' . trim((string) $lastName));
+
+        if ($full !== '') {
+            return $full;
+        }
+
+        return trim((string) $fallback) ?: '';
     }
 }

@@ -27,6 +27,13 @@ class CashWalletTransaction extends Model
         'cash_out_description',
         'cash_out_user_id',
         'cash_out_date',
+        'cash_out_method',
+        'cash_out_bank_name',
+        'cash_out_account_type',
+        'cash_out_account_holder_name',
+        'cash_out_account_number',
+        'cash_out_esewa_wallet',
+        'cash_out_khalti_wallet',
     ];
 
     protected $casts = [
