@@ -27,9 +27,10 @@ Point Flutter to `http://127.0.0.1:8001/api` (Android emulator: `http://10.0.2.2
 
 ## Deploy to cPanel
 
-See **[DEPLOY.md](DEPLOY.md)** — SSH deploy to `repositories/backend-api` with public URL `public_html/backend-mobile-api`.
+Server folder: **`~/repositories/backend-api`** (File Manager: repositories → backend-api).  
+See **[DEPLOY.md](DEPLOY.md)** and **[../docs/SERVER_PATHS.md](../docs/SERVER_PATHS.md)**.
 
 ```bash
 cp deploy-config.env.example deploy-config.env
-./deploy.sh
+npm run deploy
 ```

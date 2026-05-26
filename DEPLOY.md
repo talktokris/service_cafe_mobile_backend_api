@@ -1,18 +1,17 @@
 # Deploy mobile API (backend-api) to cPanel
 
-## Server layout
+**Server paths (read first):** [../docs/SERVER_PATHS.md](../docs/SERVER_PATHS.md)
 
-| Purpose | Path |
-|---------|------|
-| Web app | `~/repositories/service_cafe` |
-| **Mobile API** | `~/repositories/backend-api` |
-| **Public URL** | `~/public_html/backend-mobile-api` → symlink to `backend-api/public` |
+## Where files go on the server
 
-**API base URL (Flutter `ApiConfig`):**
+| What | Path |
+|------|------|
+| Laravel app (upload target) | `~/repositories/backend-api` |
+| File Manager | **repositories** → **backend-api** |
+| Full path | `/home4/servi5ne/repositories/backend-api` |
+| Public URL (symlink) | `~/public_html/backend-mobile-api` → `backend-api/public` |
 
-```text
-https://servecafe.com/backend-mobile-api/api
-```
+The API is a **sibling** of `service_cafe`, not inside it.
 
 ## Config
 
@@ -21,56 +20,48 @@ cd backend-api
 cp deploy-config.env.example deploy-config.env
 ```
 
-| Variable | Value |
-|----------|--------|
-| `SSH_HOST` | `servecafe.com` |
-| `SSH_USER` | `servi5ne` |
-| `REMOTE_PATH` | `repositories/backend-api` |
-| `REMOTE_PUBLIC_LINK` | `public_html/backend-mobile-api` |
-| `LOCAL_VENDOR` | `1` (install Composer deps on Mac, upload `vendor/`) |
+Required in `deploy-config.env`:
 
-`deploy-config.env` is gitignored — never commit it.
+```env
+REMOTE_PATH=repositories/backend-api
+REMOTE_PUBLIC_LINK=public_html/backend-mobile-api
+LOCAL_VENDOR=1
+```
 
 ## Deploy
-
-From **Terminal.app**:
 
 ```bash
 cd backend-api
 npm run deploy
 ```
 
-With migrations (only after `.env` exists on the server):
+With migrations (after `.env` exists on server):
 
 ```bash
 npm run deploy:migrate
 ```
 
-Or:
+## API URL (Flutter)
 
-```bash
-./deploy.sh
-MIGRATE=1 CLEAR_CACHE=1 ./deploy.sh
+```text
+https://servecafe.com/backend-mobile-api/api
 ```
 
-## First-time server setup
+Set in `mobile-app/lib/core/config/api_config.dart` → `productionApiBaseUrl`.
 
-After the first deploy:
+## First-time on server
 
 ```bash
 ssh servi5ne@servecafe.com
 cd ~/repositories/backend-api
 cp .env.example .env
-# Edit .env: DB_*, APP_KEY, APP_URL=https://servecafe.com/backend-mobile-api
+# DB_* same as web app; APP_URL=https://servecafe.com/backend-mobile-api
 php artisan key:generate
 php artisan migrate --force
 ```
 
-Use the **same database** as the web app if both apps share data.
-
 ## Troubleshooting
 
-- **Composer on server:** Keep `LOCAL_VENDOR=1` in `deploy-config.env` (default).
-- **404 on `/backend-mobile-api`:** Re-run deploy; script recreates the `public_html/backend-mobile-api` symlink.
-- **Wrong folder:** `REMOTE_PATH` must be `repositories/backend-api`, not inside `service_cafe/`.
-- **Password deploy:** Run from Terminal.app, or set `SSH_KEY=~/.ssh/id_rsa` in `deploy-config.env`.
+- **Wrong folder in File Manager:** Open `repositories/backend-api`, not `service_cafe` and not `public_html/backend-mobile-api` (that is only the symlink).
+- **Old `deploy-to-cpanel.sh` on server:** Safe to delete; use Mac `deploy.sh` only.
+- **404 on API:** Re-run `npm run deploy` to refresh the `public_html/backend-mobile-api` symlink.

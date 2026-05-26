@@ -27,20 +27,32 @@ if [[ -z "$SSH_USER" || -z "$SSH_HOST" || -z "$REMOTE_PATH" ]]; then
   exit 1
 fi
 
-# Never deploy inside service_cafe/ — API must be a sibling folder under repositories/
+# Canonical server folder (cPanel: repositories → backend-api). See docs/SERVER_PATHS.md
+CANONICAL_API_PATH="repositories/backend-api"
+
+# Never deploy inside service_cafe/
 if [[ "$REMOTE_PATH" == *service_cafe* ]]; then
-  echo "ERROR: REMOTE_PATH must not be inside service_cafe/."
+  echo "ERROR: API must not deploy under service_cafe/."
   echo "  Current:  ${REMOTE_PATH}"
-  echo "  Required: repositories/backend-api"
-  echo ""
-  echo "Edit deploy-config.env and set:"
-  echo "  REMOTE_PATH=repositories/backend-api"
+  echo "  Required: ${CANONICAL_API_PATH}"
+  echo "  File Manager: repositories → backend-api (sibling of service_cafe)"
   exit 1
 fi
 
-# Must be exactly repositories/backend-api (or absolute home path ending in /repositories/backend-api)
-if [[ "$REMOTE_PATH" != "repositories/backend-api" && "$REMOTE_PATH" != */repositories/backend-api ]]; then
-  echo "WARNING: REMOTE_PATH is '${REMOTE_PATH}' — expected repositories/backend-api"
+# Normalize relative path
+REMOTE_PATH="${REMOTE_PATH#./}"
+REMOTE_PATH="${REMOTE_PATH%/}"
+
+if [[ "$REMOTE_PATH" != "$CANONICAL_API_PATH" && "$REMOTE_PATH" != *"/${CANONICAL_API_PATH}" ]]; then
+  echo "ERROR: REMOTE_PATH must be ${CANONICAL_API_PATH}"
+  echo "  Current: ${REMOTE_PATH}"
+  echo "  Edit deploy-config.env — see docs/SERVER_PATHS.md"
+  exit 1
+fi
+
+# Always deploy to ~/repositories/backend-api (not web-app, not public_html)
+if [[ "$REMOTE_PATH" == */repositories/backend-api ]]; then
+  REMOTE_PATH="repositories/backend-api"
 fi
 
 REMOTE_PUBLIC_LINK="${REMOTE_PUBLIC_LINK:-public_html/backend-mobile-api}"
@@ -199,7 +211,7 @@ REMOTE_PATH_DETECT
     return 0
   fi
 
-  echo "ERROR: Cannot resolve REMOTE_PATH. Set REMOTE_PATH=repositories/backend-api in deploy-config.env"
+  echo "ERROR: Cannot resolve ~/${configured}. Create it in cPanel or set REMOTE_PATH=repositories/backend-api in deploy-config.env"
   return 1
 }
 
@@ -352,7 +364,7 @@ EOF
 }
 
 echo "=== Deploy mobile API to $SSH_USER@$SSH_HOST ==="
-echo "Target REMOTE_PATH: ${REMOTE_PATH}"
+echo "Target: ~/${REMOTE_PATH}  (File Manager: repositories → backend-api)"
 
 resolve_remote_path || exit 1
 ensure_local_vendor || exit 1
