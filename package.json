@@ -3,7 +3,9 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "deploy": "CLEAR_CACHE=1 ./deploy.sh",
+        "deploy:migrate": "MIGRATE=1 CLEAR_CACHE=1 ./deploy.sh"
     },
     "devDependencies": {
         "autoprefixer": "^10.4.20",
